@@ -1,0 +1,4 @@
+.venv/
+__pycache__/
+app/detections.db
+app/static/captures/*.jpg
