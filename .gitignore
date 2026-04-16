@@ -1,4 +1,7 @@
 .venv/
 __pycache__/
-app/detections.db
-app/static/captures/*.jpg
+*.pyc
+.env
+agrovision_ia/app/detections.db
+agrovision_ia/app/static/captures/*
+!agrovision_ia/app/static/captures/.gitkeep

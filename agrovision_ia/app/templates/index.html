@@ -2,66 +2,333 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>AgroVision AI</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgroVision AI - Dashboard Inteligente</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f4f6f8; margin: 0; padding: 20px; }
-        .container { max-width: 1200px; margin: 0 auto; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        #video-feed { width: 100%; border-radius: 8px; background: #000; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #eee; }
-        .badge { background: #e6f4ea; color: #137333; padding: 4px 10px; border-radius: 12px; font-weight: bold; }
-        .chat-response { background: #f8f9fa; padding: 15px; border-radius: 8px; margin-top: 10px; border-left: 4px solid #1a73e8; }
-        textarea { width: 100%; height: 60px; padding: 10px; border-radius: 8px; border: 1px solid #ddd; }
-        button { background: #1a73e8; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; margin-top: 10px; }
+        :root {
+            --bg-a: #eff6fb;
+            --bg-b: #f8fbff;
+            --panel: rgba(255, 255, 255, 0.9);
+            --accent: #0284c7;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --success: #10b981;
+            --danger: #ef4444;
+        }
+
+        body { 
+            font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; 
+            background: linear-gradient(135deg, var(--bg-a), var(--bg-b)); 
+            color: var(--text-main);
+            margin: 0; 
+            padding: 20px; 
+            min-height: 100vh;
+        }
+
+        .container { max-width: 1400px; margin: 0 auto; }
+        
+        header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            margin-bottom: 30px; 
+        }
+        
+        h1 { margin: 0; font-size: 1.8rem; color: var(--accent); display: flex; align-items: center; gap: 10px; }
+        .status-badge { font-size: 0.8rem; padding: 4px 12px; border-radius: 20px; background: white; border: 1px solid #ddd; }
+        .status-online { color: var(--success); border-color: var(--success); }
+
+        .dashboard-grid { 
+            display: grid; 
+            grid-template-columns: 1fr 380px; 
+            gap: 24px; 
+        }
+
+        .card { 
+            background: var(--panel); 
+            backdrop-filter: blur(8px);
+            border-radius: 16px; 
+            padding: 24px; 
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05); 
+            border: 1px solid rgba(255,255,255,0.5);
+            margin-bottom: 24px;
+        }
+
+        .card h2 { margin-top: 0; font-size: 1.1rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 20px; }
+
+        #video-container { 
+            width: 100%; 
+            border-radius: 12px; 
+            overflow: hidden; 
+            background: #000; 
+            aspect-ratio: 16/9;
+            position: relative;
+        }
+        #video-feed { width: 100%; height: 100%; object-fit: cover; }
+        
+        .event-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); 
+            gap: 16px; 
+        }
+        .event-card { 
+            background: white; 
+            border-radius: 12px; 
+            overflow: hidden; 
+            border: 1px solid #edf2f7;
+            transition: transform 0.2s;
+        }
+        .event-card:hover { transform: translateY(-4px); }
+        .event-thumb { width: 100%; height: 120px; object-fit: cover; }
+        .event-info { padding: 12px; }
+        .event-label { font-weight: 600; color: var(--accent); font-size: 0.9rem; }
+        .event-time { font-size: 0.75rem; color: var(--text-muted); }
+
+        /* Chat Styles */
+        #chat-container { 
+            display: flex; 
+            flex-direction: column; 
+            height: 600px; 
+        }
+        #chat-messages { 
+            flex-grow: 1; 
+            overflow-y: auto; 
+            margin-bottom: 16px; 
+            padding-right: 8px;
+        }
+        .message { 
+            margin-bottom: 12px; 
+            padding: 10px 14px; 
+            border-radius: 12px; 
+            max-width: 85%; 
+            font-size: 0.9rem; 
+            line-height: 1.4;
+        }
+        .message.user { 
+            background: var(--accent); 
+            color: white; 
+            align-self: flex-end; 
+            margin-left: auto; 
+            border-bottom-right-radius: 2px;
+        }
+        .message.assistant { 
+            background: white; 
+            color: var(--text-main); 
+            border: 1px solid #e2e8f0;
+            align-self: flex-start; 
+            border-bottom-left-radius: 2px;
+        }
+        
+        .chat-input-area { 
+            display: flex; 
+            gap: 8px; 
+            background: white; 
+            padding: 8px; 
+            border-radius: 12px; 
+            border: 1px solid #e2e8f0;
+        }
+        #chat-input { 
+            flex-grow: 1; 
+            border: none; 
+            padding: 8px 12px; 
+            outline: none; 
+            font-size: 0.9rem;
+        }
+        #send-btn { 
+            background: var(--accent); 
+            color: white; 
+            border: none; 
+            padding: 8px 16px; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-weight: 600;
+        }
+        #send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>AgroVision AI</h1>
-        <div class="grid">
-            <div class="card">
-                <h2>Câmera ao Vivo</h2>
-                <img src="/frame" id="live-camera">
+        <header>
+            <h1><span style="color: #0ea5e9;">🌱</span> AgroVision AI</h1>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <select id="model-select" class="status-badge" style="cursor: pointer; outline: none;">
+                    <option value="llama3">Llama 3</option>
+                    <option value="mistral">Mistral</option>
+                </select>
+                <div id="ollama-status" class="status-badge">Verificando Ollama...</div>
             </div>
-            <div class="card">
-                <h2>Eventos de Hoje</h2>
-                <table>
-                    <thead><tr><th>Hora</th><th>Tipo</th><th>Ação</th></tr></thead>
-                    <tbody>
+        </header>
+
+        <div class="dashboard-grid">
+            <main>
+                <div class="card">
+                    <h2>Monitoramento em Tempo Real</h2>
+                    <div id="video-container">
+                        <img src="/video_feed" id="video-feed" alt="Live Stream">
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h2 style="margin: 0;">Detecções Recentes</h2>
+                    </div>
+                    <div class="event-grid">
                         {% for event in events %}
-                        <tr>
-                            <td>{{ event.event_time }}</td>
-                            <td><span class="badge">{{ event.label }}</span></td>
-                            <td><a href="{{ event.image_path }}" target="_blank">Ver Foto</a></td>
-                        </tr>
+                        <div class="event-card">
+                            <img src="{{ event.image_path }}" class="event-thumb" alt="Detection">
+                            <div class="event-info">
+                                <div class="event-label">{{ event.label }}</div>
+                                <div class="event-time">{{ event.event_time }}</div>
+                            </div>
+                        </div>
                         {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-        <div class="card" style="margin-top: 20px;">
-            <h2>Assistente AgroVision</h2>
-            <textarea id="question" placeholder="O que aconteceu ultimamente?"></textarea>
-            <button onclick="ask()">Consultar</button>
-            <div id="answer" class="chat-response">Aguardando...</div>
+                    </div>
+                </div>
+            </main>
+
+            <aside>
+                <div class="card" id="chat-container">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h2 style="margin: 0;">Assistente IA</h2>
+                        <button onclick="clearHistory()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.8rem;">Limpar</button>
+                    </div>
+                    <div id="chat-messages">
+                        <div class="message assistant">
+                            Olá! Sou o assistente do AgroVision. Como posso ajudar com o monitoramento hoje?
+                        </div>
+                    </div>
+                    <div id="chat-metrics" style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 8px; text-align: right;"></div>
+                    <div class="chat-input-area">
+                        <input type="text" id="chat-input" placeholder="Pergunte algo..." onkeypress="if(event.key==='Enter') sendMessage()">
+                        <button id="send-btn" onclick="sendMessage()">Enviar</button>
+                    </div>
+                </div>
+            </aside>
         </div>
     </div>
-    <script>
-        setInterval(() => {
-            document.getElementById('live-camera').src = "/frame?t=" + new Date().getTime();
-        }, 150);
 
-        async function ask() {
-            const q = document.getElementById("question").value;
-            const res = await fetch("/chat", {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({message: q})
-            });
-            const data = await res.json();
-            document.getElementById("answer").innerText = data.answer;
+    <script>
+        let chatHistory = [];
+
+        async function checkHealth() {
+            try {
+                const res = await fetch('/health');
+                const data = await res.json();
+                const badge = document.getElementById('ollama-status');
+                if (data.ollama === 'online') {
+                    badge.innerText = 'Ollama: Online';
+                    badge.classList.add('status-online');
+                } else {
+                    badge.innerText = 'Ollama: Offline';
+                    badge.style.color = 'var(--danger)';
+                }
+            } catch (e) {
+                console.error("Erro ao checar health", e);
+            }
+        }
+        checkHealth();
+
+        function clearHistory() {
+            chatHistory = [];
+            document.getElementById('chat-messages').innerHTML = `
+                <div class="message assistant">
+                    Olá! Sou o assistente do AgroVision. Como posso ajudar com o monitoramento hoje?
+                </div>
+            `;
+            document.getElementById('chat-metrics').innerText = '';
+        }
+
+        function addMessage(role, content) {
+            const container = document.getElementById('chat-messages');
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${role}`;
+            msgDiv.innerText = content;
+            container.appendChild(msgDiv);
+            container.scrollTop = container.scrollHeight;
+            return msgDiv;
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const btn = document.getElementById('send-btn');
+            const metrics = document.getElementById('chat-metrics');
+            const model = document.getElementById('model-select').value;
+            const text = input.value.trim();
+            
+            if (!text) return;
+
+            input.value = '';
+            input.disabled = true;
+            btn.disabled = true;
+            metrics.innerText = 'Pensando...';
+
+            addMessage('user', text);
+            const responseDiv = addMessage('assistant', '...');
+            let fullResponse = '';
+
+            try {
+                const response = await fetch('/chat/stream', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: text,
+                        history: chatHistory,
+                        model: model
+                    })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                responseDiv.innerText = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    const lines = chunk.split('\n');
+                    
+                    for (const line of lines) {
+                        if (line.trim()) {
+                            try {
+                                const data = JSON.parse(line);
+                                if (data.content) {
+                                    fullResponse += data.content;
+                                    responseDiv.innerText = fullResponse;
+                                    document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight;
+                                }
+                                if (data.response_time) {
+                                    metrics.innerText = `Tempo de resposta: ${data.response_time.toFixed(2)}s`;
+                                }
+                                if (data.error) {
+                                    responseDiv.innerText = "Erro: " + data.error;
+                                    metrics.innerText = 'Erro na resposta';
+                                }
+                            } catch (e) {
+                                console.error("Erro ao processar chunk", e);
+                            }
+                        }
+                    }
+                }
+
+                chatHistory.push({ role: 'user', content: text });
+                chatHistory.push({ role: 'assistant', content: fullResponse });
+                
+                if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
+
+            } catch (e) {
+                responseDiv.innerText = "Erro ao conectar com o servidor.";
+                metrics.innerText = 'Erro de conexão';
+                console.error(e);
+            } finally {
+                input.disabled = false;
+                btn.disabled = false;
+                input.focus();
+            }
         }
     </script>
 </body>
