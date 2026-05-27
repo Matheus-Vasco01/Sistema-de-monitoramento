@@ -145,6 +145,55 @@
         }
         #send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+        /* News Feed Styles */
+        .news-item {
+            background: white;
+            border: 1px solid #edf2f7;
+            border-radius: 10px;
+            padding: 12px;
+            transition: all 0.2s ease;
+            text-align: left;
+        }
+        .news-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+            border-color: var(--accent);
+        }
+        .news-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-main);
+            margin: 0 0 6px 0;
+            line-height: 1.3;
+        }
+        .news-title a {
+            color: inherit;
+            text-decoration: none;
+        }
+        .news-title a:hover {
+            color: var(--accent);
+        }
+        .news-summary {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin: 0 0 8px 0;
+            line-height: 1.4;
+        }
+        .news-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+        }
+        .news-badge {
+            background: #f0fdf4;
+            color: var(--success);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
@@ -205,6 +254,18 @@
                     <div class="chat-input-area">
                         <input type="text" id="chat-input" placeholder="Pergunte algo..." onkeypress="if(event.key==='Enter') sendMessage()">
                         <button id="send-btn" onclick="sendMessage()">Enviar</button>
+                    </div>
+                </div>
+
+                <div class="card" id="news-container">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h2 style="margin: 0;">Notícias do Setor Agro</h2>
+                        <button onclick="loadNews()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.8rem; display: flex; align-items: center; gap: 4px;">
+                            🔄 Atualizar
+                        </button>
+                    </div>
+                    <div id="news-list" style="max-height: 380px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 8px;">
+                        <div style="color: var(--text-muted); font-size: 0.9rem; text-align: center; padding: 20px 0;">Carregando notícias...</div>
                     </div>
                 </div>
             </aside>
@@ -330,6 +391,48 @@
                 input.focus();
             }
         }
+
+        async function loadNews() {
+            const container = document.getElementById('news-list');
+            try {
+                const res = await fetch('/api/news');
+                const data = await res.json();
+                
+                if (data.error) {
+                    container.innerHTML = `<div style="color: var(--danger); font-size: 0.9rem; text-align: center; padding: 20px 0;">Erro: ${data.error}</div>`;
+                    return;
+                }
+                
+                const news = data.news || [];
+                if (news.length === 0) {
+                    container.innerHTML = `<div style="color: var(--text-muted); font-size: 0.9rem; text-align: center; padding: 20px 0;">Nenhuma notícia encontrada no momento.</div>`;
+                    return;
+                }
+                
+                container.innerHTML = '';
+                news.forEach(item => {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = 'news-item';
+                    itemDiv.innerHTML = `
+                        <h3 class="news-title">
+                            <a href="${item.url}" target="_blank" rel="noopener noreferrer">${item.title}</a>
+                        </h3>
+                        <p class="news-summary">${item.summary}</p>
+                        <div class="news-meta">
+                            <span class="news-badge">G1 Agro</span>
+                            <span>Notícias Recentes</span>
+                        </div>
+                    `;
+                    container.appendChild(itemDiv);
+                });
+            } catch (e) {
+                console.error("Erro ao carregar notícias", e);
+                container.innerHTML = `<div style="color: var(--danger); font-size: 0.9rem; text-align: center; padding: 20px 0;">Erro ao buscar notícias.</div>`;
+            }
+        }
+
+        // Carrega notícias ao iniciar a página
+        loadNews();
     </script>
 </body>
 </html>

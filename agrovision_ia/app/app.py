@@ -16,6 +16,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from ultralytics import YOLO
+from fastapi.concurrency import run_in_threadpool
+from services.scraping_service import init_news_db, fetch_agro_news
 
 # =========================
 # CONFIGURAÇÕES DE CAMINHOS
@@ -75,6 +77,16 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
+# Compatibilidade PyTorch 2.6+ para carregar modelo (corrige erro de weights_only=True)
+import torch
+import torch.serialization
+original_load = torch.load
+def safe_torch_load(*args, **kwargs):
+    kwargs["weights_only"] = False
+    return original_load(*args, **kwargs)
+torch.load = safe_torch_load
+torch.serialization.load = safe_torch_load
+
 model = YOLO(MODEL_PATH)
 last_frame = None
 last_frame_lock = threading.Lock()
@@ -84,50 +96,61 @@ last_alert_time = defaultdict(lambda: 0.0)
 # FUNÇÕES DE BANCO DE DADOS
 # =========================
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS events (
-            id TEXT PRIMARY KEY,
-            event_time TEXT,
-            label TEXT,
-            confidence REAL,
-            image_path TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS events (
+                    id TEXT PRIMARY KEY,
+                    event_time TEXT,
+                    label TEXT,
+                    confidence REAL,
+                    image_path TEXT
+                )
+            """)
+            conn.commit()
+        # Inicializa também a tabela de notícias da camada de Scraping
+        init_news_db()
+    except sqlite3.Error as e:
+        print(f"Erro ao inicializar o banco de dados: {e}")
 
 def save_event(event_id, label, confidence, image_path):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("INSERT INTO events VALUES (?, ?, ?, ?, ?)", 
-               (event_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), label, confidence, image_path))
-    conn.commit()
-    conn.close()
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cur = conn.cursor()
+            cur.execute("INSERT INTO events VALUES (?, ?, ?, ?, ?)", 
+                       (event_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), label, confidence, image_path))
+            conn.commit()
+    except sqlite3.Error as e:
+        print(f"Erro ao salvar evento {event_id} ({label}) no SQLite: {e}")
 
 def list_events(limit=15):
     if not os.path.exists(DB_PATH): return []
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT id, event_time, label, confidence, image_path FROM events ORDER BY event_time DESC LIMIT ?", (limit,))
-    rows = cur.fetchall()
-    conn.close()
-    return [{"id": r[0], "event_time": r[1], "label": r[2], "confidence": r[3], "image_path": r[4]} for r in rows]
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT id, event_time, label, confidence, image_path FROM events ORDER BY event_time DESC LIMIT ?", (limit,))
+            rows = cur.fetchall()
+            return [{"id": r[0], "event_time": r[1], "label": r[2], "confidence": r[3], "image_path": r[4]} for r in rows]
+    except sqlite3.Error as e:
+        print(f"Erro ao listar eventos do SQLite: {e}")
+        return []
 
 # =========================
 # FUNÇÕES DO CHAT COM IA
 # =========================
 def get_last_event():
     if not os.path.exists(DB_PATH): return None
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute("SELECT id, event_time, label, confidence, image_path FROM events ORDER BY event_time DESC LIMIT 1")
-    row = cur.fetchone()
-    conn.close()
-    if row:
-        return dict(row)
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute("SELECT id, event_time, label, confidence, image_path FROM events ORDER BY event_time DESC LIMIT 1")
+            row = cur.fetchone()
+            if row:
+                return dict(row)
+    except sqlite3.Error as e:
+        print(f"Erro ao obter último evento do SQLite: {e}")
     return None
 
 def build_chat_messages(message: str, history: List[Message]):
@@ -189,6 +212,11 @@ def process_stream():
                 print("Conexão com a câmera perdida. Tentando reconectar...")
                 break
             
+            # Reduz a resolução do frame se for muito grande para evitar ArrayMemoryError e otimizar CPU/RAM
+            h, w = frame.shape[:2]
+            if w > 800:
+                frame = cv2.resize(frame, (800, int(h * 800 / w)))
+            
             results = model(frame, conf=CONFIDENCE_THRESHOLD, verbose=False)
 
             for result in results:
@@ -227,20 +255,26 @@ def process_stream():
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
     try:
-        answer, messages, r_time = ask_ollama(req.message, req.history, req.model or MODEL_NAME)
+        # Executa ask_ollama de forma assíncrona no pool de threads para não bloquear o event loop
+        answer, messages, r_time = await run_in_threadpool(
+            ask_ollama, req.message, req.history, req.model or MODEL_NAME
+        )
         new_history = req.history + [Message(role="assistant", content=answer)]
         return ChatResponse(answer=answer, history=new_history, response_time=r_time)
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        print(f"Erro na rota de chat com IA: {e}")
+        return JSONResponse(status_code=500, content={"error": "Erro ao processar sua pergunta com a IA local. Verifique se o Ollama está ativo."})
 
 @app.post("/chat/stream")
-async def chat_stream(req: ChatRequest):
+def chat_stream(req: ChatRequest):
+    # Definido como síncrono para que Starlette execute o gerador síncrono em uma thread do pool automaticamente
     return StreamingResponse(
         stream_ollama_generator(req.message, req.history, req.model or MODEL_NAME),
         media_type="application/x-ndjson"
     )
 
-async def stream_ollama_generator(message: str, history: List[Message], model_name: str):
+def stream_ollama_generator(message: str, history: List[Message], model_name: str):
+    # Gerador síncrono executado com segurança no pool de threads
     messages = build_chat_messages(message, history)
     payload = {
         "model": model_name,
@@ -264,7 +298,8 @@ async def stream_ollama_generator(message: str, history: List[Message], model_na
                         yield json.dumps({"response_time": end_time - start_time}) + "\n"
                         break
     except Exception as e:
-        yield json.dumps({"error": str(e)}) + "\n"
+        print(f"Erro no streaming do Ollama: {e}")
+        yield json.dumps({"error": "Erro de conexão no streaming da IA."}) + "\n"
 
 @app.get("/health")
 def health():
@@ -317,12 +352,17 @@ def get_frame():
 
 def generate_mjpeg_stream():
     while True:
+        frame_to_encode = None
         with last_frame_lock:
-            if last_frame is None:
-                time.sleep(0.1)
-                continue
-            _, buffer = cv2.imencode(".jpg", last_frame)
-            frame_bytes = buffer.tobytes()
+            if last_frame is not None:
+                frame_to_encode = last_frame.copy()
+        
+        if frame_to_encode is None:
+            time.sleep(0.1)  # Aguarda fora do lock para não bloquear o produtor de frames
+            continue
+            
+        _, buffer = cv2.imencode(".jpg", frame_to_encode)
+        frame_bytes = buffer.tobytes()
         
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
@@ -334,3 +374,13 @@ def video_feed():
         generate_mjpeg_stream(), 
         media_type="multipart/x-mixed-replace; boundary=frame"
     )
+
+# Rota para obter as notícias coletadas via web scraping
+@app.get("/api/news")
+def get_news():
+    try:
+        news_list = fetch_agro_news()
+        return JSONResponse(content={"news": news_list})
+    except Exception as e:
+        print(f"Erro ao obter notícias do agronegócio: {e}")
+        return JSONResponse(status_code=500, content={"error": "Erro interno ao obter notícias."})
